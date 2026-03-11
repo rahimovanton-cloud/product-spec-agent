@@ -4,7 +4,7 @@ import os
 import threading
 
 from dotenv import load_dotenv
-from flask import Flask
+from flask import Flask, render_template, request, jsonify
 
 load_dotenv()
 
@@ -17,15 +17,37 @@ logger = logging.getLogger(__name__)
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 PORT           = int(os.getenv("PORT", 8080))
 
-# ── Flask app (Render health check) ──────────────────────────────────────────
+# ── Flask ─────────────────────────────────────────────────────────────────────
 flask_app = Flask(__name__)
 
 @flask_app.route("/")
+def index():
+    return render_template("index.html")
+
+@flask_app.route("/health")
 def health():
     return "ok", 200
 
+@flask_app.route("/search", methods=["POST"])
+def search():
+    data = request.get_json(force=True)
+    query = (data.get("query") or "").strip()
+    if not query:
+        return jsonify({"error": "Пустой запрос"}), 400
 
-# ── Telegram bot (runs in background thread) ──────────────────────────────────
+    try:
+        result = asyncio.run(_run(query))
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"Search error: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+async def _run(product_name: str) -> dict:
+    from pipeline import run_pipeline_dict
+    return await run_pipeline_dict(product_name)
+
+
+# ── Telegram bot ──────────────────────────────────────────────────────────────
 def run_bot():
     from telegram.ext import Application, MessageHandler, filters
 
@@ -49,11 +71,11 @@ def run_bot():
     async def main():
         app = Application.builder().token(TELEGRAM_TOKEN).build()
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-        logger.info("Bot polling started")
+        logger.info("Telegram bot polling started")
         async with app:
             await app.start()
             await app.updater.start_polling(drop_pending_updates=True)
-            await asyncio.Event().wait()  # run forever
+            await asyncio.Event().wait()
 
     asyncio.run(main())
 
@@ -62,10 +84,10 @@ if __name__ == "__main__":
     if not TELEGRAM_TOKEN:
         raise ValueError("TELEGRAM_BOT_TOKEN is not set")
 
-    # Start bot in background thread
-    t = threading.Thread(target=run_bot, daemon=True)
-    t.start()
-    logger.info(f"Bot thread started, Flask on port {PORT}")
+    if TELEGRAM_TOKEN:
+        t = threading.Thread(target=run_bot, daemon=True)
+        t.start()
+        logger.info("Telegram bot thread started")
 
-    # Flask serves health checks on main thread
-    flask_app.run(host="0.0.0.0", port=PORT)
+    logger.info(f"Flask starting on port {PORT}")
+    flask_app.run(host="0.0.0.0", port=PORT, use_reloader=False)

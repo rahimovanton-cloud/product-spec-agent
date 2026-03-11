@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Spec Search</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    min-height: 100vh;
+    background: linear-gradient(135deg, #0a0a1a 0%, #0d1b2a 40%, #1a0a2e 100%);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    overflow-x: hidden;
+  }
+
+  /* Ambient blobs */
+  body::before, body::after {
+    content: '';
+    position: fixed;
+    border-radius: 50%;
+    filter: blur(80px);
+    opacity: 0.15;
+    pointer-events: none;
+    z-index: 0;
+  }
+  body::before {
+    width: 500px; height: 500px;
+    background: #6c3de8;
+    top: -100px; left: -100px;
+  }
+  body::after {
+    width: 400px; height: 400px;
+    background: #1a8fe3;
+    bottom: -80px; right: -80px;
+  }
+
+  .container {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    width: 100%;
+    max-width: 1100px;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* Glass card */
+  .card {
+    background: rgba(255,255,255,0.04);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 24px;
+    padding: 36px;
+    min-height: 520px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.08);
+  }
+
+  /* LEFT PANEL */
+  .left { display: flex; flex-direction: column; }
+
+  .logo {
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 32px;
+  }
+  .logo-icon {
+    width: 40px; height: 40px;
+    background: linear-gradient(135deg, #6c3de8, #1a8fe3);
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+  }
+  .logo-text {
+    font-size: 18px; font-weight: 600;
+    color: rgba(255,255,255,0.9);
+    letter-spacing: -0.3px;
+  }
+  .logo-sub {
+    font-size: 12px; color: rgba(255,255,255,0.4);
+    margin-top: 1px;
+  }
+
+  label {
+    font-size: 12px;
+    font-weight: 500;
+    color: rgba(255,255,255,0.4);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 10px;
+    display: block;
+  }
+
+  input[type="text"] {
+    width: 100%;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 14px;
+    padding: 16px 20px;
+    font-size: 16px;
+    color: rgba(255,255,255,0.9);
+    outline: none;
+    transition: border-color 0.2s, background 0.2s;
+    margin-bottom: 12px;
+  }
+  input[type="text"]::placeholder { color: rgba(255,255,255,0.2); }
+  input[type="text"]:focus {
+    border-color: rgba(108,61,232,0.6);
+    background: rgba(255,255,255,0.08);
+  }
+
+  .examples {
+    display: flex; flex-wrap: wrap; gap: 8px;
+    margin-bottom: 28px;
+  }
+  .chip {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 20px;
+    padding: 6px 14px;
+    font-size: 12px;
+    color: rgba(255,255,255,0.5);
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .chip:hover {
+    background: rgba(108,61,232,0.2);
+    border-color: rgba(108,61,232,0.4);
+    color: rgba(255,255,255,0.8);
+  }
+
+  button.search-btn {
+    width: 100%;
+    padding: 16px;
+    background: linear-gradient(135deg, #6c3de8, #1a8fe3);
+    border: none;
+    border-radius: 14px;
+    font-size: 15px;
+    font-weight: 600;
+    color: white;
+    cursor: pointer;
+    transition: opacity 0.2s, transform 0.1s;
+    letter-spacing: 0.3px;
+    margin-top: auto;
+  }
+  button.search-btn:hover { opacity: 0.9; }
+  button.search-btn:active { transform: scale(0.99); }
+  button.search-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* RIGHT PANEL */
+  .right { display: flex; flex-direction: column; }
+
+  .panel-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: rgba(255,255,255,0.35);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 28px;
+  }
+
+  /* Empty state */
+  .empty-state {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    color: rgba(255,255,255,0.15);
+  }
+  .empty-icon { font-size: 48px; }
+  .empty-text { font-size: 14px; text-align: center; line-height: 1.6; }
+
+  /* Loading */
+  .loading {
+    flex: 1;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+  }
+  .spinner {
+    width: 44px; height: 44px;
+    border: 3px solid rgba(255,255,255,0.08);
+    border-top-color: #6c3de8;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-text {
+    font-size: 14px;
+    color: rgba(255,255,255,0.35);
+  }
+
+  /* Result */
+  .result { display: none; flex-direction: column; gap: 20px; }
+
+  .product-name {
+    font-size: 22px;
+    font-weight: 700;
+    color: rgba(255,255,255,0.95);
+    line-height: 1.3;
+    letter-spacing: -0.5px;
+  }
+  .product-query {
+    font-size: 12px;
+    color: rgba(255,255,255,0.3);
+    margin-top: 4px;
+  }
+
+  .specs-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .spec-card {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 16px;
+    padding: 16px 20px;
+  }
+  .spec-label {
+    font-size: 11px;
+    color: rgba(255,255,255,0.3);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-bottom: 6px;
+  }
+  .spec-value {
+    font-size: 24px;
+    font-weight: 700;
+    color: rgba(255,255,255,0.9);
+    letter-spacing: -0.5px;
+  }
+  .spec-unit {
+    font-size: 13px;
+    font-weight: 400;
+    color: rgba(255,255,255,0.4);
+    margin-left: 3px;
+  }
+
+  .confidence-row {
+    display: flex; align-items: center; gap: 10px;
+  }
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+  }
+  .badge-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+  }
+  .badge.high   { background: rgba(52,211,153,0.15); color: #34d399; border: 1px solid rgba(52,211,153,0.25); }
+  .badge.medium { background: rgba(251,191,36,0.15);  color: #fbbf24; border: 1px solid rgba(251,191,36,0.25); }
+  .badge.low    { background: rgba(248,113,113,0.15); color: #f87171; border: 1px solid rgba(248,113,113,0.25); }
+  .badge.high   .badge-dot { background: #34d399; }
+  .badge.medium .badge-dot { background: #fbbf24; }
+  .badge.low    .badge-dot { background: #f87171; }
+
+  .notes-text {
+    font-size: 12px;
+    color: rgba(255,255,255,0.25);
+    line-height: 1.6;
+  }
+
+  .pdf-link {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 13px;
+    color: #6c8de8;
+    text-decoration: none;
+    padding: 10px 16px;
+    background: rgba(108,61,232,0.1);
+    border: 1px solid rgba(108,61,232,0.2);
+    border-radius: 10px;
+    transition: all 0.2s;
+    align-self: flex-start;
+  }
+  .pdf-link:hover {
+    background: rgba(108,61,232,0.2);
+    color: #8cadf0;
+  }
+
+  /* Error */
+  .error-msg {
+    display: none;
+    padding: 16px 20px;
+    background: rgba(248,113,113,0.08);
+    border: 1px solid rgba(248,113,113,0.2);
+    border-radius: 14px;
+    font-size: 14px;
+    color: #f87171;
+    line-height: 1.5;
+  }
+
+  @media (max-width: 768px) {
+    .container { grid-template-columns: 1fr; }
+    .card { min-height: auto; padding: 28px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <!-- LEFT: Input -->
+  <div class="card left">
+    <div class="logo">
+      <div class="logo-icon">📐</div>
+      <div>
+        <div class="logo-text">Spec Search</div>
+        <div class="logo-sub">Поиск технических характеристик</div>
+      </div>
+    </div>
+
+    <label>Название устройства</label>
+    <input type="text" id="query" placeholder="Sony FX3, Blackmagic URSA Mini Pro..." />
+
+    <div style="margin-bottom:20px;">
+      <label style="margin-bottom:8px;">Примеры</label>
+      <div class="examples">
+        <div class="chip" onclick="setQuery('Sony FX3')">Sony FX3</div>
+        <div class="chip" onclick="setQuery('Blackmagic URSA Mini Pro 12K')">URSA Mini Pro 12K</div>
+        <div class="chip" onclick="setQuery('Canon EOS R5')">Canon EOS R5</div>
+        <div class="chip" onclick="setQuery('DJI Ronin 4D')">DJI Ronin 4D</div>
+        <div class="chip" onclick="setQuery('Atomos Shogun')">Atomos Shogun</div>
+      </div>
+    </div>
+
+    <button class="search-btn" id="searchBtn" onclick="search()">
+      Найти характеристики
+    </button>
+  </div>
+
+  <!-- RIGHT: Result -->
+  <div class="card right">
+    <div class="panel-title">Результат</div>
+
+    <div class="empty-state" id="emptyState">
+      <div class="empty-icon">🔍</div>
+      <div class="empty-text">Введите название устройства<br>и нажмите «Найти»</div>
+    </div>
+
+    <div class="loading" id="loadingState">
+      <div class="spinner"></div>
+      <div class="loading-text" id="loadingText">Поиск характеристик...</div>
+    </div>
+
+    <div class="error-msg" id="errorMsg"></div>
+
+    <div class="result" id="resultState">
+      <div>
+        <div class="product-name" id="productName"></div>
+        <div class="product-query" id="productQuery"></div>
+      </div>
+
+      <div class="specs-grid" id="specsGrid"></div>
+
+      <div class="confidence-row">
+        <div class="badge" id="confidenceBadge">
+          <span class="badge-dot"></span>
+          <span id="confidenceText"></span>
+        </div>
+      </div>
+
+      <div class="notes-text" id="notesText"></div>
+      <a class="pdf-link" id="pdfLink" href="#" target="_blank" style="display:none">
+        📄 Открыть PDF
+      </a>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function setQuery(text) {
+  document.getElementById('query').value = text;
+  document.getElementById('query').focus();
+}
+
+document.getElementById('query').addEventListener('keydown', e => {
+  if (e.key === 'Enter') search();
+});
+
+function showState(name) {
+  ['emptyState','loadingState','resultState','errorMsg'].forEach(id => {
+    const el = document.getElementById(id);
+    el.style.display = 'none';
+    if (el.classList.contains('result') || el.classList.contains('loading') || el.classList.contains('empty-state')) {
+      el.style.display = 'none';
+    }
+  });
+  const target = document.getElementById(name);
+  if (name === 'loadingState' || name === 'emptyState') {
+    target.style.display = 'flex';
+  } else {
+    target.style.display = (name === 'resultState') ? 'flex' : 'block';
+  }
+}
+
+async function search() {
+  const query = document.getElementById('query').value.trim();
+  if (!query) return;
+
+  const btn = document.getElementById('searchBtn');
+  btn.disabled = true;
+  showState('loadingState');
+
+  const steps = [
+    'Поиск в Perplexity...',
+    'Анализ источников...',
+    'Загружаю страницу производителя...',
+    'Claude читает характеристики...',
+    'Проверяю данные...'
+  ];
+  let step = 0;
+  const loadingText = document.getElementById('loadingText');
+  const stepTimer = setInterval(() => {
+    loadingText.textContent = steps[Math.min(step++, steps.length - 1)];
+  }, 4000);
+
+  try {
+    const res = await fetch('/search', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({query})
+    });
+    const data = await res.json();
+    clearInterval(stepTimer);
+
+    if (data.error) {
+      document.getElementById('errorMsg').textContent = data.error;
+      showState('errorMsg');
+    } else {
+      renderResult(query, data);
+      showState('resultState');
+    }
+  } catch (e) {
+    clearInterval(stepTimer);
+    document.getElementById('errorMsg').textContent = 'Ошибка соединения с сервером.';
+    showState('errorMsg');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function renderResult(query, d) {
+  // Name
+  document.getElementById('productName').textContent = d.official_name || query;
+  const queryEl = document.getElementById('productQuery');
+  if (d.official_name && d.official_name.toLowerCase() !== query.toLowerCase()) {
+    queryEl.textContent = `запрос: ${query}`;
+  } else {
+    queryEl.textContent = '';
+  }
+
+  // Specs grid
+  const specs = [
+    {label: 'Вес', value: d.weight_kg, unit: 'кг'},
+    {label: 'Ширина', value: d.width_mm, unit: 'мм'},
+    {label: 'Высота', value: d.height_mm, unit: 'мм'},
+    {label: 'Глубина', value: d.depth_mm, unit: 'мм'},
+  ].filter(s => s.value != null);
+
+  document.getElementById('specsGrid').innerHTML = specs.map(s => `
+    <div class="spec-card">
+      <div class="spec-label">${s.label}</div>
+      <div class="spec-value">${s.value}<span class="spec-unit">${s.unit}</span></div>
+    </div>
+  `).join('');
+
+  // Confidence
+  const conf = d.confidence || 'low';
+  const badge = document.getElementById('confidenceBadge');
+  badge.className = `badge ${conf}`;
+  const labels = {high: 'Высокая', medium: 'Средняя', low: 'Низкая'};
+  document.getElementById('confidenceText').textContent = `Достоверность: ${labels[conf] || conf}`;
+
+  // Notes
+  document.getElementById('notesText').textContent = d.notes || '';
+
+  // PDF
+  const pdfLink = document.getElementById('pdfLink');
+  if (d.pdf_url) {
+    pdfLink.href = d.pdf_url;
+    pdfLink.style.display = 'inline-flex';
+  } else {
+    pdfLink.style.display = 'none';
+  }
+}
+</script>
+</body>
+</html>
