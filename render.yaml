@@ -1,0 +1,21 @@
+services:
+  - type: worker
+    name: product-spec-agent
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: PERPLEXITY_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: GOOGLE_SHEETS_ID
+        sync: false
+      - key: GOOGLE_SHEETS_NAME
+        value: Specs
+      - key: GOOGLE_SERVICE_ACCOUNT_JSON
+        sync: false
+      - key: JINA_API_KEY
+        sync: false
