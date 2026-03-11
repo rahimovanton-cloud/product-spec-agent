@@ -1,7 +1,5 @@
 import logging
 import os
-import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
 
 from dotenv import load_dotenv
 from telegram import Update
@@ -18,22 +16,8 @@ logger = logging.getLogger(__name__)
 from pipeline import run_pipeline
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # e.g. https://product-spec-agent.onrender.com
 PORT = int(os.getenv("PORT", 8080))
-
-
-class HealthHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"ok")
-
-    def log_message(self, *args):
-        pass  # silence HTTP logs
-
-
-def run_health_server():
-    server = HTTPServer(("0.0.0.0", PORT), HealthHandler)
-    server.serve_forever()
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -58,15 +42,20 @@ def main():
     if not TELEGRAM_TOKEN:
         raise ValueError("TELEGRAM_BOT_TOKEN is not set")
 
-    # Health check server for Render
-    threading.Thread(target=run_health_server, daemon=True).start()
-    logger.info(f"Health server on port {PORT}")
-
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    logger.info("Bot started — polling")
-    app.run_polling(drop_pending_updates=True)
+    if WEBHOOK_URL:
+        logger.info(f"Starting webhook on port {PORT}")
+        app.run_webhook(
+            listen="0.0.0.0",
+            port=PORT,
+            webhook_url=f"{WEBHOOK_URL}/webhook",
+            url_path="/webhook",
+        )
+    else:
+        logger.info("Starting polling (local mode)")
+        app.run_polling(drop_pending_updates=True)
 
 
 if __name__ == "__main__":
