@@ -127,17 +127,10 @@ def _save_to_sheets(product_name: str, mode: str, result: dict):
                    "", "", "", "", "", urls, now, mode, ""]
         elif mode == "images":
             images = result.get("images", [])
-            # Save images to a dedicated Google Sheet tab and get link
-            photos_sheet_url = ""
-            if images:
-                try:
-                    from tools.photos_sheet import save_images_to_sheet
-                    photos_sheet_url = save_images_to_sheet(product_name, images) or ""
-                    logger.info(f"Photos sheet: {photos_sheet_url}")
-                except Exception as e:
-                    logger.warning(f"Photos sheet save failed: {e}")
+            # Drive folder URL is already in result (set by pipeline_images.py)
+            folder_url = result.get("folder_url", "")
             row = [product_name, result.get("official_name") or product_name,
-                   "", "", "", "", "", f"{len(images)} фото", now, mode, photos_sheet_url]
+                   "", "", "", "", "", f"{len(images)} фото", now, mode, folder_url]
         else:
             return
 

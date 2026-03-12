@@ -186,8 +186,26 @@ async def _images_pipeline(product_name: str) -> dict:
     if not top:
         return {"error": f"Фото для «{product_name}» не найдены"}
 
-    return {
-        "official_name": official_name if official_name != product_name else None,
-        "images": [{"url": img["url"], "alt": img["alt"]} for img in top],
-        "count": len(top),
-    }
+    # Upload to Google Drive and replace URLs with Drive URLs
+    from tools.drive import save_images_to_drive
+    raw_images = [{"url": img["url"], "alt": img["alt"]} for img in top]
+    try:
+        drive_result = await save_images_to_drive(product_name, raw_images)
+    except Exception as e:
+        logger.warning(f"[{product_name}] Drive upload failed: {e}")
+        drive_result = None
+
+    if drive_result:
+        return {
+            "official_name": official_name if official_name != product_name else None,
+            "images": drive_result["images"],
+            "folder_url": drive_result["folder_url"],
+            "count": len(drive_result["images"]),
+        }
+    else:
+        # Fallback: return original URLs if Drive unavailable
+        return {
+            "official_name": official_name if official_name != product_name else None,
+            "images": raw_images,
+            "count": len(raw_images),
+        }
