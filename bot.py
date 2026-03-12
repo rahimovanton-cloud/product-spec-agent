@@ -96,7 +96,10 @@ def _save_to_sheets(product_name: str, mode: str, result: dict):
             return
         creds = Credentials.from_service_account_info(
             json.loads(sa_json),
-            scopes=["https://www.googleapis.com/auth/spreadsheets"]
+            scopes=[
+                "https://www.googleapis.com/auth/spreadsheets",
+                "https://www.googleapis.com/auth/drive",
+            ]
         )
         gc = gspread.authorize(creds)
         sh = gc.open_by_key(os.getenv("GOOGLE_SHEETS_ID", ""))
@@ -124,9 +127,17 @@ def _save_to_sheets(product_name: str, mode: str, result: dict):
                    "", "", "", "", "", urls, now, mode, ""]
         elif mode == "images":
             images = result.get("images", [])
-            urls = " | ".join(i["url"] for i in images)
+            # Upload images to Google Drive and get folder link
+            drive_folder_url = ""
+            if images:
+                try:
+                    from tools.drive import save_images_to_drive
+                    drive_folder_url = save_images_to_drive(product_name, images) or ""
+                    logger.info(f"Drive folder: {drive_folder_url}")
+                except Exception as e:
+                    logger.warning(f"Drive upload failed: {e}")
             row = [product_name, result.get("official_name") or product_name,
-                   "", "", "", "", "", urls, now, mode, ""]
+                   "", "", "", "", "", f"{len(images)} фото", now, mode, drive_folder_url]
         else:
             return
 
