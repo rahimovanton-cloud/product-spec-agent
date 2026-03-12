@@ -126,41 +126,48 @@ async def _images_pipeline(product_name: str) -> dict:
     images = []
     official_name = product_name
 
+    logger.info(f"[{product_name}] Sources: {len(sources)}")
+
     # 2. Fetch manufacturer page first (best source)
     manufacturer_url = extract_manufacturer_url(sources)
+    logger.info(f"[{product_name}] Manufacturer URL: {manufacturer_url}")
     if manufacturer_url:
         try:
             page_md = await fetch_as_markdown(manufacturer_url)
+            logger.info(f"[{product_name}] Manufacturer page: {len(page_md)} chars")
 
             name_m = re.search(r'^#+\s+(.+)$', page_md, re.IGNORECASE | re.MULTILINE)
             if name_m:
                 official_name = name_m.group(1).strip()
 
             page_images = _extract_images_from_markdown(page_md)
+            logger.info(f"[{product_name}] Manufacturer images: {len(page_images)}")
             images += page_images
         except Exception as e:
             logger.warning(f"Manufacturer page failed: {e}")
 
-    # 3. Try other tier-1 sources
-    for src in sources[:5]:
+    # 3. Try all sources looking for product images
+    for src in sources[:8]:
         url = src.get("url", "") if isinstance(src, dict) else str(src)
         if url == manufacturer_url:
             continue
-        if any(d in url.lower() for d in GOOD_IMAGE_DOMAINS):
-            try:
-                page_md = await fetch_as_markdown(url)
-                extra = _extract_images_from_markdown(page_md)
-                for img in extra:
-                    if not any(i["url"] == img["url"] for i in images):
-                        images.append(img)
-                if len(images) >= 8:
-                    break
-            except Exception:
-                pass
+        try:
+            page_md = await fetch_as_markdown(url)
+            extra = _extract_images_from_markdown(page_md)
+            for img in extra:
+                if not any(i["url"] == img["url"] for i in images):
+                    images.append(img)
+            logger.info(f"[{product_name}] From {url[:50]}: {len(extra)} images")
+            if len(images) >= 8:
+                break
+        except Exception:
+            pass
 
     # Re-sort all collected images
     images.sort(key=lambda x: x["score"], reverse=True)
     top = images[:8]
+
+    logger.info(f"[{product_name}] Total images found: {len(images)}, top: {len(top)}")
 
     if not top:
         return {"error": f"Фото для «{product_name}» не найдены"}

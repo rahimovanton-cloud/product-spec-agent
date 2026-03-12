@@ -1,7 +1,7 @@
 import logging
 import re
-from typing import List, Dict, Optional
-from urllib.parse import quote
+from typing import List, Dict
+from urllib.parse import quote, urlparse
 
 from tools.perplexity import search_perplexity
 from tools.jina import fetch_as_markdown, fetch_as_text
@@ -11,8 +11,21 @@ logger = logging.getLogger(__name__)
 
 PDF_BLOCKLIST = ['ggvideo.com', 'lang-ag.com']
 
+MANUAL_USER_PROMPT = """Find official user manual PDF download links for: {product_name}
 
-def _extract_pdf_links(markdown: str, base_url: str = "") -> List[Dict]:
+Search for:
+- Official manufacturer manual/user guide PDF
+- Download links from official website
+- Support page with documentation
+
+List all found PDF/manual links with their URLs."""
+
+MANUAL_SYSTEM_PROMPT = """You are a product documentation expert.
+Find user manuals, guides and PDF documentation for the requested product.
+Include direct download links and source URLs in your response."""
+
+
+def _extract_pdf_links(markdown: str) -> List[Dict]:
     """Extract all PDF/manual links from markdown text."""
     results = []
 
@@ -23,8 +36,8 @@ def _extract_pdf_links(markdown: str, base_url: str = "") -> List[Dict]:
             results.append({"title": title, "url": url})
 
     # Plain PDF URLs
-    for m in re.finditer(r'https?://\S+\.pdf\S*', markdown, re.IGNORECASE):
-        url = m.group(0).rstrip(')')
+    for m in re.finditer(r'https?://\S+\.pdf\b\S*', markdown, re.IGNORECASE):
+        url = m.group(0).rstrip(').,')
         if not any(b in url.lower() for b in PDF_BLOCKLIST):
             if not any(r["url"] == url for r in results):
                 results.append({"title": "PDF документ", "url": url})
@@ -41,26 +54,43 @@ def _extract_pdf_links(markdown: str, base_url: str = "") -> List[Dict]:
     return results[:8]
 
 
+def _extract_support_urls(sources: list) -> List[str]:
+    """Extract support/download page URLs from sources."""
+    urls = []
+    support_keywords = ['support', 'download', 'manual', 'docs', 'help', 'documentation']
+    for src in sources:
+        url = src.get("url", "") if isinstance(src, dict) else str(src)
+        url_lower = url.lower()
+        if any(k in url_lower for k in support_keywords):
+            urls.append(url)
+    return urls[:3]
+
+
+def _get_support_page_url(manufacturer_url: str) -> str:
+    """Try to construct a support page URL from manufacturer URL."""
+    if not manufacturer_url:
+        return None
+    parsed = urlparse(manufacturer_url)
+    domain = parsed.netloc.lower()
+
+    # Known support URL patterns
+    if 'sony' in domain:
+        return None  # Sony support requires product model lookup
+    if 'blackmagicdesign' in domain:
+        return "https://www.blackmagicdesign.com/support"
+    if 'dji' in domain:
+        return "https://www.dji.com/downloads"
+    if 'canon' in domain:
+        return None
+    return None
+
+
 async def run_manual_pipeline(product_name: str) -> dict:
     try:
         return await _manual_pipeline(product_name)
     except Exception as e:
         logger.error(f"Manual pipeline error: {e}", exc_info=True)
         return {"error": str(e)}
-
-
-MANUAL_USER_PROMPT = """Find official user manual PDF download links for: {product_name}
-
-Search for:
-- Official manufacturer manual/user guide PDF
-- Download links from official website
-- Support page with documentation
-
-List all found PDF/manual links with their URLs."""
-
-MANUAL_SYSTEM_PROMPT = """You are a product documentation expert.
-Find user manuals, guides and PDF documentation for the requested product.
-Include direct download links and source URLs in your response."""
 
 
 async def _manual_pipeline(product_name: str) -> dict:
@@ -75,10 +105,13 @@ async def _manual_pipeline(product_name: str) -> dict:
     content = perp.get("choices", [{}])[0].get("message", {}).get("content", "")
     sources = perp.get("citations", []) or []
 
+    logger.info(f"[{product_name}] Perplexity content length: {len(content)}, sources: {len(sources)}")
+
     manuals = []
 
     # 2. Extract PDF links from Perplexity response text
     manuals += _extract_pdf_links(content)
+    logger.info(f"[{product_name}] From content: {len(manuals)} manuals")
 
     # 3. Extract PDF URLs from sources directly
     for src in sources:
@@ -87,33 +120,51 @@ async def _manual_pipeline(product_name: str) -> dict:
             if not any(m["url"] == url for m in manuals):
                 manuals.append({"title": f"PDF — {url.split('/')[-1]}", "url": url})
 
-    # 4. Fetch manufacturer page and look for manuals
+    logger.info(f"[{product_name}] After sources: {len(manuals)} manuals")
+
+    # 4. Fetch support/download pages from citations
+    support_urls = _extract_support_urls(sources)
     manufacturer_url = extract_manufacturer_url(sources)
     official_name = product_name
 
-    if manufacturer_url:
+    pages_to_fetch = support_urls.copy()
+    if manufacturer_url and manufacturer_url not in pages_to_fetch:
+        pages_to_fetch.insert(0, manufacturer_url)
+
+    for page_url in pages_to_fetch[:4]:
         try:
-            page_md = await fetch_as_markdown(manufacturer_url)
+            page_md = await fetch_as_markdown(page_url)
+            logger.info(f"[{product_name}] Fetched {page_url}: {len(page_md)} chars")
 
-            # Extract name
-            name_m = re.search(r'^#+\s+(.+)$', page_md, re.MULTILINE)
-            if name_m:
-                official_name = name_m.group(1).strip()
+            if page_url == manufacturer_url:
+                name_m = re.search(r'^#+\s+(.+)$', page_md, re.MULTILINE)
+                if name_m:
+                    official_name = name_m.group(1).strip()
 
-            page_manuals = _extract_pdf_links(page_md, manufacturer_url)
+            page_manuals = _extract_pdf_links(page_md)
             for m in page_manuals:
                 if not any(x["url"] == m["url"] for x in manuals):
                     manuals.append(m)
+                    logger.info(f"[{product_name}] Found manual: {m['url']}")
         except Exception as e:
-            logger.warning(f"Manufacturer page failed: {e}")
+            logger.warning(f"Page fetch failed {page_url}: {e}")
 
-    # 5. Deduplicate and clean titles
+    # 5. Jina search fallback if still nothing
+    if not manuals:
+        try:
+            jina_url = f"https://s.jina.ai/{quote(product_name + ' user manual PDF download')}"
+            jina_md = await fetch_as_markdown(jina_url)
+            manuals += _extract_pdf_links(jina_md)
+            logger.info(f"[{product_name}] Jina fallback found: {len(manuals)}")
+        except Exception as e:
+            logger.warning(f"Jina fallback failed: {e}")
+
+    # 6. Deduplicate and clean titles
     seen = set()
     clean = []
     for m in manuals:
         if m["url"] not in seen:
             seen.add(m["url"])
-            # Clean title
             title = m["title"]
             if len(title) > 60:
                 title = title[:57] + "..."
