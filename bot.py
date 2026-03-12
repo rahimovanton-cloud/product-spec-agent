@@ -127,17 +127,17 @@ def _save_to_sheets(product_name: str, mode: str, result: dict):
                    "", "", "", "", "", urls, now, mode, ""]
         elif mode == "images":
             images = result.get("images", [])
-            # Upload images to Google Drive and get folder link
-            drive_folder_url = ""
+            # Save images to a dedicated Google Sheet tab and get link
+            photos_sheet_url = ""
             if images:
                 try:
-                    from tools.drive import save_images_to_drive
-                    drive_folder_url = save_images_to_drive(product_name, images) or ""
-                    logger.info(f"Drive folder: {drive_folder_url}")
+                    from tools.photos_sheet import save_images_to_sheet
+                    photos_sheet_url = save_images_to_sheet(product_name, images) or ""
+                    logger.info(f"Photos sheet: {photos_sheet_url}")
                 except Exception as e:
-                    logger.warning(f"Drive upload failed: {e}")
+                    logger.warning(f"Photos sheet save failed: {e}")
             row = [product_name, result.get("official_name") or product_name,
-                   "", "", "", "", "", f"{len(images)} фото", now, mode, drive_folder_url]
+                   "", "", "", "", "", f"{len(images)} фото", now, mode, photos_sheet_url]
         else:
             return
 
