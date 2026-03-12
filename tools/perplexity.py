@@ -31,7 +31,9 @@ Required:
 Return ONLY the JSON object."""
 
 
-async def search_perplexity(product_name: str) -> dict:
+async def search_perplexity(product_name: str, system_prompt: str = None, user_prompt: str = None) -> dict:
+    sys_msg = system_prompt or SYSTEM_PROMPT
+    usr_msg = user_prompt or USER_PROMPT.format(product_name=product_name)
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.post(
             "https://api.perplexity.ai/chat/completions",
@@ -42,8 +44,8 @@ async def search_perplexity(product_name: str) -> dict:
             json={
                 "model": "sonar-pro",
                 "messages": [
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": USER_PROMPT.format(product_name=product_name)},
+                    {"role": "system", "content": sys_msg},
+                    {"role": "user", "content": usr_msg},
                 ],
                 "max_tokens": 1024,
                 "temperature": 0.1,

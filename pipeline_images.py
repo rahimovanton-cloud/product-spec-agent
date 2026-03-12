@@ -98,11 +98,29 @@ async def run_images_pipeline(product_name: str) -> dict:
         return {"error": str(e)}
 
 
+IMAGES_USER_PROMPT = """Find official high-resolution product photos for: {product_name}
+
+Search for:
+- Official manufacturer product page with photos
+- High-resolution product images
+- Product gallery on manufacturer website
+
+Provide direct image URLs and the manufacturer product page URL."""
+
+IMAGES_SYSTEM_PROMPT = """You are a product research expert.
+Find official product photos and images for the requested product.
+Include direct image URLs and product page links in your response."""
+
+
 async def _images_pipeline(product_name: str) -> dict:
     logger.info(f"[{product_name}] Image search")
 
     # 1. Perplexity search
-    perp = await search_perplexity(f"{product_name} official product photo high resolution")
+    perp = await search_perplexity(
+        product_name,
+        system_prompt=IMAGES_SYSTEM_PROMPT,
+        user_prompt=IMAGES_USER_PROMPT.format(product_name=product_name),
+    )
     sources = perp.get("citations", []) or []
 
     images = []

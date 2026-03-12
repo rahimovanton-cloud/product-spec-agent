@@ -11,9 +11,6 @@ logger = logging.getLogger(__name__)
 
 PDF_BLOCKLIST = ['ggvideo.com', 'lang-ag.com']
 
-MANUAL_SYSTEM = """You are searching for product manuals and documentation.
-Find the query: {product_name} manual PDF download"""
-
 
 def _extract_pdf_links(markdown: str, base_url: str = "") -> List[Dict]:
     """Extract all PDF/manual links from markdown text."""
@@ -52,11 +49,29 @@ async def run_manual_pipeline(product_name: str) -> dict:
         return {"error": str(e)}
 
 
+MANUAL_USER_PROMPT = """Find official user manual PDF download links for: {product_name}
+
+Search for:
+- Official manufacturer manual/user guide PDF
+- Download links from official website
+- Support page with documentation
+
+List all found PDF/manual links with their URLs."""
+
+MANUAL_SYSTEM_PROMPT = """You are a product documentation expert.
+Find user manuals, guides and PDF documentation for the requested product.
+Include direct download links and source URLs in your response."""
+
+
 async def _manual_pipeline(product_name: str) -> dict:
     logger.info(f"[{product_name}] Manual search")
 
     # 1. Perplexity search for manuals
-    perp = await search_perplexity(f"{product_name} user manual PDF download official")
+    perp = await search_perplexity(
+        product_name,
+        system_prompt=MANUAL_SYSTEM_PROMPT,
+        user_prompt=MANUAL_USER_PROMPT.format(product_name=product_name),
+    )
     content = perp.get("choices", [{}])[0].get("message", {}).get("content", "")
     sources = perp.get("citations", []) or []
 
