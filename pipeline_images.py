@@ -1,0 +1,154 @@
+import logging
+import re
+from typing import List, Dict, Optional
+
+from tools.perplexity import search_perplexity
+from tools.jina import fetch_as_markdown
+from tools.parsers import extract_manufacturer_url
+
+logger = logging.getLogger(__name__)
+
+IMAGE_EXTENSIONS = r'https?://[^\s\'"<>]+\.(?:jpg|jpeg|png|webp|gif)(?:\?[^\s\'"<>]*)?'
+
+# Domains that usually have clean product images
+GOOD_IMAGE_DOMAINS = [
+    'blackmagicdesign.com', 'sony.com', 'canon.com', 'nikon.com',
+    'panasonic.com', 'fujifilm.com', 'dji.com', 'arri.com', 'red.com',
+    'atomos.com', 'teradek.com', 'rode.com', 'sennheiser.com',
+    'bhphotovideo.com', 'adorama.com',
+]
+
+SKIP_PATTERNS = [
+    'icon', 'logo', 'avatar', 'banner', 'sprite', 'thumbnail',
+    'pixel', 'tracking', '1x1', 'badge', 'social', 'favicon',
+]
+
+
+def _score_image(url: str, alt: str = "") -> int:
+    """Score image relevance. Higher = better."""
+    score = 0
+    url_lower = url.lower()
+    alt_lower = alt.lower()
+
+    if any(bad in url_lower for bad in SKIP_PATTERNS):
+        return -1
+    if any(bad in alt_lower for bad in SKIP_PATTERNS):
+        return -1
+
+    if any(d in url_lower for d in GOOD_IMAGE_DOMAINS):
+        score += 10
+    if any(k in url_lower for k in ('product', 'gallery', 'hero', 'front', 'main', 'camera', 'body')):
+        score += 5
+    if any(k in alt_lower for k in ('product', 'front', 'side', 'hero')):
+        score += 3
+
+    # Size hints
+    for size in re.findall(r'(\d{3,4})x(\d{3,4})', url_lower):
+        w, h = int(size[0]), int(size[1])
+        if w >= 400 and h >= 300:
+            score += 4
+        elif w < 100 or h < 100:
+            score -= 5
+
+    if '.jpg' in url_lower or '.jpeg' in url_lower:
+        score += 1
+
+    return score
+
+
+def _extract_images_from_markdown(markdown: str) -> List[Dict]:
+    """Extract image URLs with alt text from markdown."""
+    results = []
+
+    # Markdown images: ![alt](url)
+    for m in re.finditer(r'!\[([^\]]*)\]\((' + IMAGE_EXTENSIONS + r')\)', markdown, re.IGNORECASE):
+        alt, url = m.group(1), m.group(2)
+        score = _score_image(url, alt)
+        if score >= 0:
+            results.append({"url": url, "alt": alt or "Фото продукта", "score": score})
+
+    # Plain image URLs in text
+    for m in re.finditer(IMAGE_EXTENSIONS, markdown, re.IGNORECASE):
+        url = m.group(0)
+        if not any(r["url"] == url for r in results):
+            score = _score_image(url)
+            if score >= 0:
+                results.append({"url": url, "alt": "Фото продукта", "score": score})
+
+    # Sort by score
+    results.sort(key=lambda x: x["score"], reverse=True)
+
+    # Deduplicate similar URLs (keep highest scored)
+    seen_bases = set()
+    clean = []
+    for r in results:
+        base = re.sub(r'\?.*$', '', r["url"])
+        if base not in seen_bases:
+            seen_bases.add(base)
+            clean.append(r)
+
+    return clean
+
+
+async def run_images_pipeline(product_name: str) -> dict:
+    try:
+        return await _images_pipeline(product_name)
+    except Exception as e:
+        logger.error(f"Images pipeline error: {e}", exc_info=True)
+        return {"error": str(e)}
+
+
+async def _images_pipeline(product_name: str) -> dict:
+    logger.info(f"[{product_name}] Image search")
+
+    # 1. Perplexity search
+    perp = await search_perplexity(f"{product_name} official product photo high resolution")
+    sources = perp.get("citations", []) or []
+
+    images = []
+    official_name = product_name
+
+    # 2. Fetch manufacturer page first (best source)
+    manufacturer_url = extract_manufacturer_url(sources)
+    if manufacturer_url:
+        try:
+            page_md = await fetch_as_markdown(manufacturer_url)
+
+            name_m = re.search(r'^#+\s+(.+)$', page_md, re.IGNORECASE | re.MULTILINE)
+            if name_m:
+                official_name = name_m.group(1).strip()
+
+            page_images = _extract_images_from_markdown(page_md)
+            images += page_images
+        except Exception as e:
+            logger.warning(f"Manufacturer page failed: {e}")
+
+    # 3. Try other tier-1 sources
+    for src in sources[:5]:
+        url = src.get("url", "") if isinstance(src, dict) else str(src)
+        if url == manufacturer_url:
+            continue
+        if any(d in url.lower() for d in GOOD_IMAGE_DOMAINS):
+            try:
+                page_md = await fetch_as_markdown(url)
+                extra = _extract_images_from_markdown(page_md)
+                for img in extra:
+                    if not any(i["url"] == img["url"] for i in images):
+                        images.append(img)
+                if len(images) >= 8:
+                    break
+            except Exception:
+                pass
+
+    # Re-sort all collected images
+    images.sort(key=lambda x: x["score"], reverse=True)
+    top = images[:8]
+
+    if not top:
+        return {"error": f"Фото для «{product_name}» не найдены"}
+
+    return {
+        "official_name": official_name if official_name != product_name else None,
+        "images": [{"url": img["url"], "alt": img["alt"]} for img in top],
+        "count": len(top),
+    }

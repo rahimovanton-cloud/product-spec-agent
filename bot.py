@@ -30,21 +30,86 @@ def health():
 
 @flask_app.route("/search", methods=["POST"])
 def search():
-    data = request.get_json(force=True)
+    data  = request.get_json(force=True)
     query = (data.get("query") or "").strip()
+    mode  = (data.get("mode") or "specs").strip()
+
     if not query:
         return jsonify({"error": "Пустой запрос"}), 400
 
     try:
-        result = asyncio.run(_run(query))
+        result = asyncio.run(_run(query, mode))
+        # Save to Sheets in background (don't block response)
+        threading.Thread(target=_save_to_sheets, args=(query, mode, result), daemon=True).start()
         return jsonify(result)
     except Exception as e:
-        logger.error(f"Search error: {e}", exc_info=True)
+        logger.error(f"Search error [{mode}]: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
-async def _run(product_name: str) -> dict:
-    from pipeline import run_pipeline_dict
-    return await run_pipeline_dict(product_name)
+
+async def _run(product_name: str, mode: str) -> dict:
+    if mode == "manual":
+        from pipeline_manual import run_manual_pipeline
+        return await run_manual_pipeline(product_name)
+    elif mode == "images":
+        from pipeline_images import run_images_pipeline
+        return await run_images_pipeline(product_name)
+    else:
+        from pipeline import run_pipeline_dict
+        return await run_pipeline_dict(product_name)
+
+
+def _save_to_sheets(product_name: str, mode: str, result: dict):
+    """Save any search result to Google Sheets."""
+    try:
+        import json, os
+        from datetime import datetime
+        import gspread
+        from google.oauth2.service_account import Credentials
+
+        sa_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
+        if not sa_json:
+            return
+        creds = Credentials.from_service_account_info(
+            json.loads(sa_json),
+            scopes=["https://www.googleapis.com/auth/spreadsheets"]
+        )
+        gc = gspread.authorize(creds)
+        sh = gc.open_by_key(os.getenv("GOOGLE_SHEETS_ID", ""))
+        ws = sh.worksheet(os.getenv("GOOGLE_SHEETS_NAME", "Specs"))
+
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        if mode == "specs":
+            row = [
+                product_name,
+                result.get("official_name") or product_name,
+                result.get("weight_kg", ""),
+                result.get("width_mm", ""),
+                result.get("height_mm", ""),
+                result.get("depth_mm", ""),
+                result.get("confidence", ""),
+                result.get("notes", ""),
+                now, mode,
+                result.get("pdf_url", ""),
+            ]
+        elif mode == "manual":
+            manuals = result.get("manuals", [])
+            urls = " | ".join(m["url"] for m in manuals)
+            row = [product_name, result.get("official_name") or product_name,
+                   "", "", "", "", "", urls, now, mode, ""]
+        elif mode == "images":
+            images = result.get("images", [])
+            urls = " | ".join(i["url"] for i in images)
+            row = [product_name, result.get("official_name") or product_name,
+                   "", "", "", "", "", urls, now, mode, ""]
+        else:
+            return
+
+        ws.append_row(row)
+        logger.info(f"Saved to Sheets: {product_name} [{mode}]")
+    except Exception as e:
+        logger.warning(f"Sheets save failed: {e}")
 
 
 # ── Telegram bot ──────────────────────────────────────────────────────────────
