@@ -28,6 +28,30 @@ def index():
 def health():
     return "ok", 200
 
+@flask_app.route("/debug-perplexity", methods=["POST"])
+def debug_perplexity():
+    """Temporary debug: show raw Perplexity response."""
+    data = request.get_json(force=True)
+    query = (data.get("query") or "").strip()
+    mode = (data.get("mode") or "manual").strip()
+    if not query:
+        return jsonify({"error": "empty query"}), 400
+    try:
+        async def _dbg():
+            from tools.perplexity import search_perplexity
+            if mode == "manual":
+                from pipeline_manual import MANUAL_SYSTEM_PROMPT, MANUAL_USER_PROMPT
+                r = await search_perplexity(query, MANUAL_SYSTEM_PROMPT, MANUAL_USER_PROMPT.format(product_name=query))
+            else:
+                r = await search_perplexity(query)
+            content = r.get("choices", [{}])[0].get("message", {}).get("content", "")
+            sources = r.get("citations", []) or []
+            return {"content": content[:2000], "sources": sources[:10]}
+        return jsonify(asyncio.run(_dbg()))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @flask_app.route("/search", methods=["POST"])
 def search():
     data  = request.get_json(force=True)
