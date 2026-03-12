@@ -146,8 +146,8 @@ async def _images_pipeline(product_name: str) -> dict:
         except Exception as e:
             logger.warning(f"Manufacturer page failed: {e}")
 
-    # 3. Try all sources looking for product images
-    for src in sources[:8]:
+    # 3. Try all citation sources
+    for src in sources[:6]:
         url = src.get("url", "") if isinstance(src, dict) else str(src)
         if url == manufacturer_url:
             continue
@@ -162,6 +162,20 @@ async def _images_pipeline(product_name: str) -> dict:
                 break
         except Exception:
             pass
+
+    # 4. Fallback: B&H Photo is static and has product images
+    if len(images) < 3:
+        try:
+            from urllib.parse import quote
+            bh_url = f"https://www.bhphotovideo.com/c/search?Ntt={quote(product_name)}"
+            bh_md = await fetch_as_markdown(bh_url)
+            extra = _extract_images_from_markdown(bh_md)
+            for img in extra:
+                if not any(i["url"] == img["url"] for i in images):
+                    images.append(img)
+            logger.info(f"[{product_name}] B&H fallback: {len(extra)} images")
+        except Exception as e:
+            logger.warning(f"B&H fallback failed: {e}")
 
     # Re-sort all collected images
     images.sort(key=lambda x: x["score"], reverse=True)

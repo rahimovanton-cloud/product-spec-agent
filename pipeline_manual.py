@@ -5,7 +5,7 @@ from urllib.parse import quote, urlparse
 
 from tools.perplexity import search_perplexity
 from tools.jina import fetch_as_markdown, fetch_as_text
-from tools.parsers import extract_manufacturer_url, TIER1_DOMAINS
+from tools.parsers import extract_manufacturer_url, extract_pdf_url, TIER1_DOMAINS, OFFICIAL_PDF_DOMAINS
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +114,11 @@ async def _manual_pipeline(product_name: str) -> dict:
     logger.info(f"[{product_name}] From content: {len(manuals)} manuals")
 
     # 3. Extract PDF URLs from sources directly
+    # First check official PDF domains (manuals.sony.net, dl.sony.com, etc.)
+    official_pdf = extract_pdf_url(sources, product_name)
+    if official_pdf and not any(m["url"] == official_pdf for m in manuals):
+        manuals.append({"title": f"Официальный мануал PDF", "url": official_pdf})
+
     for src in sources:
         url = src.get("url", "") if isinstance(src, dict) else str(src)
         if ".pdf" in url.lower() and not any(b in url.lower() for b in PDF_BLOCKLIST):
