@@ -182,6 +182,7 @@ async def _pipeline_data(product_name: str) -> dict:
     pdf_specs = {}
     manufacturer_specs = {}
     manual_pdf_url = None
+    print_pdf_url_found = None
 
     if pdf_url:
         try:
@@ -201,15 +202,17 @@ async def _pipeline_data(product_name: str) -> dict:
                 manufacturer_specs = await extract_specs_from_image(page_data["specs_image_url"], product_name) or {}
             if not manufacturer_specs and page_data.get("page_text_excerpt"):
                 manufacturer_specs = await extract_specs_from_text(page_data["page_text_excerpt"], product_name, source="manufacturer") or {}
-            if page_data.get("print_pdf_url") and not pdf_specs:
-                try:
-                    official_pdf_text = await fetch_as_text(page_data["print_pdf_url"])
-                    if official_pdf_text:
-                        pdf_specs = await extract_specs_from_text(official_pdf_text, product_name, source="official_pdf") or {}
-                        if pdf_specs:
-                            manual_pdf_url = page_data["print_pdf_url"]
-                except Exception:
-                    pass
+            if page_data.get("print_pdf_url"):
+                print_pdf_url_found = page_data["print_pdf_url"]
+                if not pdf_specs:
+                    try:
+                        official_pdf_text = await fetch_as_text(page_data["print_pdf_url"])
+                        if official_pdf_text:
+                            pdf_specs = await extract_specs_from_text(official_pdf_text, product_name, source="official_pdf") or {}
+                            if pdf_specs:
+                                manual_pdf_url = page_data["print_pdf_url"]
+                    except Exception:
+                        pass
         except Exception:
             pass
 
@@ -235,6 +238,9 @@ async def _pipeline_data(product_name: str) -> dict:
     except Exception:
         pass
 
+    # Best available PDF: manual_pdf_url (confirmed) → print_pdf_url from page → pdf_url from sources
+    best_pdf = manual_pdf_url or print_pdf_url_found or pdf_url
+
     return {
         "official_name": official_name if official_name != product_name else None,
         "weight_kg":  final_specs.get("weight_kg"),
@@ -243,5 +249,5 @@ async def _pipeline_data(product_name: str) -> dict:
         "depth_mm":   final_specs.get("depth_mm"),
         "confidence": final_specs.get("confidence"),
         "notes":      final_specs.get("notes"),
-        "pdf_url":    manual_pdf_url,
+        "pdf_url":    best_pdf,
     }
