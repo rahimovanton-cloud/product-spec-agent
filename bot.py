@@ -28,6 +28,29 @@ def index():
 def health():
     return "ok", 200
 
+@flask_app.route("/debug-drive")
+def debug_drive():
+    """Test Drive API: create folder, upload a tiny test image, return result."""
+    try:
+        async def _test():
+            import httpx
+            from tools.drive import _get_token, _create_folder, _make_public
+            token = _get_token()
+            async with httpx.AsyncClient(timeout=15) as client:
+                folder_id = await _create_folder(client, "TEST_DRIVE_API", None)
+                await _make_public(client, folder_id)
+                # Immediately delete test folder
+                await client.delete(
+                    f"https://www.googleapis.com/drive/v3/files/{folder_id}",
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                return {"ok": True, "token_prefix": token[:20], "folder_id": folder_id}
+        return jsonify(asyncio.run(_test()))
+    except Exception as e:
+        import traceback
+        return jsonify({"error": str(e), "trace": traceback.format_exc()[-500:]}), 500
+
+
 @flask_app.route("/debug-perplexity", methods=["POST"])
 def debug_perplexity():
     """Temporary debug: show raw Perplexity response."""
