@@ -29,15 +29,15 @@ def _extract_pdf_links(markdown: str) -> List[Dict]:
     """Extract all PDF/manual links from markdown text."""
     results = []
 
-    # Markdown links: [title](url) - url may have citation [1] appended
+    # Markdown links: [title](url) - url may have citation [1][2] appended
     for m in re.finditer(r'\[([^\]]+)\]\((https?://[^)]+\.pdf[^)]*)\)', markdown, re.IGNORECASE):
-        title, url = m.group(1).strip(), re.sub(r'\[\d+\]$', '', m.group(2)).rstrip()
+        title, url = m.group(1).strip(), re.sub(r'(\[\d+\])+$', '', m.group(2)).rstrip()
         if not any(b in url.lower() for b in PDF_BLOCKLIST):
             results.append({"title": title, "url": url})
 
-    # Plain PDF URLs (may have citation refs like [1] at end)
+    # Plain PDF URLs (may have citation refs like [1][2] at end)
     for m in re.finditer(r'https?://\S+\.pdf\S*', markdown, re.IGNORECASE):
-        url = re.sub(r'\[\d+\]$', '', m.group(0)).rstrip(').,')
+        url = re.sub(r'(\[\d+\])+$', '', m.group(0)).rstrip(').,')
         if not any(b in url.lower() for b in PDF_BLOCKLIST):
             if not any(r["url"] == url for r in results):
                 results.append({"title": "PDF документ", "url": url})
@@ -48,7 +48,7 @@ def _extract_pdf_links(markdown: str) -> List[Dict]:
         markdown, re.IGNORECASE
     ):
         title = m.group(1).strip()
-        url = re.sub(r'\[\d+\]$', '', m.group(2)).rstrip()
+        url = re.sub(r'(\[\d+\])+$', '', m.group(2)).rstrip()
         if url not in [r["url"] for r in results]:
             results.append({"title": title, "url": url})
 
