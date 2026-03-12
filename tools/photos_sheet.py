@@ -40,7 +40,7 @@ def _get_client() -> gspread.Client:
 
 def _safe_sheet_name(product_name: str, date_str: str) -> str:
     """Sheet tab names must be ≤ 100 chars, no special chars."""
-    name = f"📸 {product_name} {date_str}"
+    name = f"Photos {product_name} {date_str}"
     # Remove chars forbidden in sheet names
     name = re.sub(r'[\\/*?\[\]:]', '', name)
     return name[:100]
